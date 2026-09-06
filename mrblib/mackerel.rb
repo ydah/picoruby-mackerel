@@ -47,6 +47,109 @@ module Mackerel
     end
   end
 
+  class NetHTTPTransport
+    HOST = 'api.mackerelio.com'
+    PORT = 443
+    PRODUCTION_SETTINGS = {
+      'open_timeout' => 10,
+      'read_timeout' => 10,
+      'write_timeout' => 10,
+      'total_timeout' => 30,
+      'max_request_bytes' => MAX_REQUEST_BYTES,
+      'max_response_header_bytes' => 4_096,
+      'max_response_body_bytes' => 4_096,
+      'max_response_line_bytes' => 1_024
+    }
+
+    def initialize(ca_file:, mode: :production)
+      unless ca_file.is_a?(String) && !ca_file.empty?
+        raise ConfigurationError, 'ca_file is required'
+      end
+      unless mode == :production || mode == :compat
+        raise ConfigurationError, 'invalid transport mode'
+      end
+
+      @ca_file = ca_file
+      @mode = mode
+      verify_production_support if @mode == :production
+    end
+
+    def post(path:, headers:, body:)
+      http = new_http
+      configure(http)
+      begin
+        http.start
+      rescue
+        close(http)
+        raise TransportFailure.new(reason: :connect_failed, phase: :before_request, retryable: false)
+      end
+
+      begin
+        response = http.post(path, body, headers)
+        normalize(response)
+      rescue
+        raise TransportFailure.new(reason: :request_failed, phase: :request_started, retryable: true)
+      ensure
+        close(http)
+      end
+    end
+
+    def inspect
+      "#<#{self.class} mode=#{@mode}>"
+    end
+
+    private
+
+    def new_http
+      Net::HTTP.new(HOST, PORT)
+    end
+
+    def verify_production_support
+      http = new_http
+      PRODUCTION_SETTINGS.each do |name, _value|
+        unless http.respond_to?("#{name}=")
+          raise UnsupportedTransportError, 'production HTTP boundaries are unavailable'
+        end
+      end
+    end
+
+    def configure(http)
+      http.use_ssl = true
+      http.verify_mode = verify_peer
+      http.ca_file = @ca_file
+      http.open_timeout = 10
+      http.read_timeout = 10
+      if @mode == :production
+        PRODUCTION_SETTINGS.each { |name, value| http.send("#{name}=", value) }
+      end
+    end
+
+    def verify_peer
+      if Object.const_defined?(:SSLContext)
+        return SSLContext::VERIFY_PEER
+      end
+      if Object.const_defined?(:OpenSSL)
+        return OpenSSL::SSL::VERIFY_PEER
+      end
+      raise UnsupportedTransportError, 'TLS peer verification is unavailable'
+    end
+
+    def normalize(response)
+      headers = {}
+      source = response.respond_to?(:header) ? response.header : response.to_hash
+      source.each do |key, value|
+        headers[key.to_s.downcase] = value.is_a?(Array) ? value.join(', ') : value.to_s
+      end
+      Response.new(status_code: response.code.to_i, headers: headers, body: response.body)
+    end
+
+    def close(http)
+      http.finish if http.respond_to?(:active?) && http.active?
+    rescue
+      nil
+    end
+  end
+
   class Result
     attr_reader :http_status, :error_code, :delivery, :retry_after_seconds
 
@@ -302,4 +405,3 @@ module Mackerel
     end
   end
 end
-
