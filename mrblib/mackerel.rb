@@ -144,7 +144,7 @@ module Mackerel
     end
 
     def close(http)
-      http.finish if http.respond_to?(:active?) && http.active?
+      http.finish if http.respond_to?(:finish)
     rescue
       nil
     end
@@ -175,8 +175,12 @@ module Mackerel
     def initialize(api_key:, clock:, transport:, service: nil, host_id: nil)
       validate_api_key(api_key)
       validate_destination(service, host_id)
-      raise ConfigurationError, 'clock is required' unless clock
-      raise ConfigurationError, 'transport is required' unless transport
+      unless clock && clock.respond_to?(:ready?) && clock.respond_to?(:unix_seconds)
+        raise ConfigurationError, 'invalid clock'
+      end
+      unless transport && transport.respond_to?(:post)
+        raise ConfigurationError, 'invalid transport'
+      end
 
       @api_key = api_key
       @clock = clock
@@ -317,6 +321,7 @@ module Mackerel
         'Accept' => 'application/json',
         'Accept-Encoding' => 'identity',
         'Connection' => 'close',
+        'User-Agent' => 'PicoRuby-Net-HTTP/1.0',
         'Content-Length' => body.bytesize.to_s
       }
     end

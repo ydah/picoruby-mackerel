@@ -61,6 +61,7 @@ class MackerelClientTest < Picotest::Test
     assert_equal('test-key-not-a-secret', call['headers']['X-Api-Key'])
     assert_equal('identity', call['headers']['Accept-Encoding'])
     assert_equal('close', call['headers']['Connection'])
+    assert_equal('PicoRuby-Net-HTTP/1.0', call['headers']['User-Agent'])
     assert_equal(23.75, payload[0]['value'])
   end
 
@@ -97,4 +98,3 @@ class MackerelClientTest < Picotest::Test
     assert_equal(2, @transport.calls.length)
   end
 end
-
