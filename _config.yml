@@ -1,0 +1,3 @@
+title: picoruby-mackerel
+description: A small Mackerel metrics client for PicoRuby that validates service or host metric batches before a single verified HTTPS POST.
+theme: minima
